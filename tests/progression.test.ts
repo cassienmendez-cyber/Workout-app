@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { nextPrescription, estimatedOneRepMax, loadIncrement } from '../src/engine/progression';
 import { getExercise } from '../src/data/exercises';
 import { resolveRepRange } from '../src/engine/prescription';
-import type { EquipmentProfile, PerformanceSummary } from '../src/domain/types';
+import type { EquipmentProfile } from '../src/domain/types';
 import type { PerformanceSummary as Summary } from '../src/engine/progression';
 
 const gym: EquipmentProfile = {

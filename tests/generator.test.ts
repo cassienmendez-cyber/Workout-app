@@ -113,6 +113,39 @@ describe('workout generation (spec 22, 23)', () => {
     expect(workout.estimatedMinutes).toBeGreaterThan(10);
     expect(workout.estimatedMinutes).toBeLessThan(90);
   });
+
+  it('fits the session inside the time the user actually has (spec 9)', () => {
+    for (const minutes of [20, 30, 45, 60]) {
+      for (const goal of ['strength', 'muscle_gain', 'general_fitness'] as const) {
+        const user = testUser({ preferredDurationMinutes: minutes, primaryGoal: goal });
+        for (const slot of buildSplit(4)) {
+          const workout = generateWorkout({ user, slot, date: MONDAY, history: [] });
+          // A small overshoot is acceptable; a 25% overrun is not.
+          expect(
+            workout.estimatedMinutes,
+            `${goal} ${slot.label} at ${minutes}min`,
+          ).toBeLessThanOrEqual(Math.round(minutes * 1.25));
+        }
+      }
+    }
+  });
+
+  it('never trims an exercise below one working set when fitting time', () => {
+    const user = testUser({ preferredDurationMinutes: 20, primaryGoal: 'strength' });
+    const workout = generateWorkout({ user, slot: buildSplit(4)[0], date: MONDAY, history: [] });
+    for (const we of workout.exercises) {
+      expect(we.targetSets).toBeGreaterThanOrEqual(1);
+      expect(we.sets).toHaveLength(we.targetSets);
+    }
+  });
+
+  it('gives accessories at least two sets when the user is fresh (spec 28)', () => {
+    const user = testUser({ preferredDurationMinutes: 75, primaryGoal: 'muscle_gain' });
+    const workout = generateWorkout({ user, slot: buildSplit(4)[0], date: MONDAY, history: [] });
+    for (const we of workout.exercises) {
+      expect(we.targetSets, findExercise(we.exerciseId)?.name).toBeGreaterThanOrEqual(2);
+    }
+  });
 });
 
 describe('short workout modes (spec 44, 45)', () => {

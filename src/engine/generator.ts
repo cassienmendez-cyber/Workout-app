@@ -170,6 +170,56 @@ function priorityFor(exercise: Exercise, index: number): number {
   return index >= 4 ? 4 : 3;
 }
 
+/** Total estimated wall-clock minutes for a list of prescribed exercises. */
+export function estimateWorkoutMinutes(exercises: WorkoutExercise[]): number {
+  return Math.round(
+    exercises.reduce((total, we) => {
+      const ex = findExercise(we.exerciseId);
+      return total + estimateExerciseMinutes(we.targetSets, we.restSeconds, ex?.unilateral ?? false);
+    }, 0) + 5, // warm-up and transitions
+  );
+}
+
+/**
+ * Bring a session inside the user's available time by shaving sets from the
+ * lowest-priority movements first. Never drops an exercise (that is short-mode
+ * behaviour, spec 44) and never takes a movement below one working set.
+ */
+function fitToDuration(
+  exercises: WorkoutExercise[],
+  durationMinutes: number,
+): { exercises: WorkoutExercise[]; trimmedSets: number } {
+  // A little overshoot is fine; people are not stopwatches.
+  const budget = durationMinutes * 1.1;
+  let working = exercises.map((we) => ({ ...we, sets: [...we.sets] }));
+  let trimmedSets = 0;
+
+  // Lowest priority first, then latest in the session.
+  const order = working
+    .map((we, index) => ({ index, priority: we.priority, position: we.order }))
+    .sort((a, b) => b.priority - a.priority || b.position - a.position);
+
+  let guard = 0;
+  while (estimateWorkoutMinutes(working) > budget && guard < 40) {
+    guard++;
+    const candidate = order.find(({ index }) => working[index].targetSets > 1);
+    if (!candidate) break;
+
+    // Rotate so trimming spreads across accessories instead of gutting one.
+    order.push(order.splice(order.indexOf(candidate), 1)[0]);
+
+    const target = working[candidate.index];
+    working[candidate.index] = {
+      ...target,
+      targetSets: target.targetSets - 1,
+      sets: target.sets.slice(0, target.targetSets - 1),
+    };
+    trimmedSets++;
+  }
+
+  return { exercises: working, trimmedSets };
+}
+
 export function generateWorkout(options: GenerateOptions): Workout {
   const { user, slot, date, history } = options;
   const mode = options.mode ?? 'full';
@@ -278,14 +328,17 @@ export function generateWorkout(options: GenerateOptions): Workout {
     adaptations.push(...fatigue.reasons.slice(0, 2));
   }
 
-  const estimatedMinutes = Math.round(
-    exercises.reduce((total, we) => {
-      const ex = findExercise(we.exerciseId);
-      return (
-        total + estimateExerciseMinutes(we.targetSets, we.restSeconds, ex?.unilateral ?? false)
-      );
-    }, 0) + 5, // warm-up and transitions
-  );
+  // Fit the session to the time the user actually has (spec 9, 22). Trimming
+  // starts at the lowest-priority movements so the essential stimulus is the
+  // last thing to go.
+  const trimmed = fitToDuration(exercises, durationMinutes);
+  if (trimmed.trimmedSets > 0) {
+    adaptations.push(
+      `Volume trimmed to fit your ${durationMinutes}-minute session without dropping a movement pattern.`,
+    );
+  }
+
+  const estimatedMinutes = estimateWorkoutMinutes(trimmed.exercises);
 
   return {
     id: uid(),
@@ -298,7 +351,7 @@ export function generateWorkout(options: GenerateOptions): Workout {
     status: 'scheduled',
     mode,
     energy,
-    exercises,
+    exercises: trimmed.exercises,
     estimatedMinutes,
     startedAt: null,
     completedAt: null,
@@ -347,12 +400,7 @@ export function applyMode(workout: Workout, mode: WorkoutMode): Workout {
     ...workout,
     mode,
     exercises: trimmed,
-    estimatedMinutes: Math.round(
-      trimmed.reduce((total, we) => {
-        const ex = findExercise(we.exerciseId);
-        return total + estimateExerciseMinutes(we.targetSets, we.restSeconds, ex?.unilateral ?? false);
-      }, 0) + 5,
-    ),
+    estimatedMinutes: estimateWorkoutMinutes(trimmed),
     adaptations: [...workout.adaptations.filter((a) => !a.startsWith('Minimum session') && !a.startsWith('Reduced session') && !a.startsWith('Full session')), note],
   };
 }

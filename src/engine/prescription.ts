@@ -121,10 +121,14 @@ export function resolveSets(exercise: Exercise, ctx: SetContext): number {
   if (ctx.energy === 'exhausted' || ctx.energy === 'unwell') sets -= 1;
   else if (ctx.energy === 'tired') sets -= exercise.compound ? 0 : 1;
 
-  // Accessories late in a session earn their keep at lower volume.
-  if ((ctx.orderIndex ?? 0) >= 4 && !exercise.compound) sets -= 1;
+  // Accessories late in a session earn their keep at lower volume, but never
+  // drop below the 2-set floor on that basis alone (spec 28).
+  if ((ctx.orderIndex ?? 0) >= 4 && !exercise.compound && sets > 2) sets -= 1;
 
-  return Math.max(1, Math.min(5, sets));
+  // Only genuine fatigue or low energy may take an exercise down to a single
+  // set; ordering and weekly volume stop at two.
+  const floor = fatigue >= 0.45 || ctx.energy === 'exhausted' || ctx.energy === 'unwell' ? 1 : 2;
+  return Math.max(floor, Math.min(5, sets));
 }
 
 /**
