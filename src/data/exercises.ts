@@ -1806,3 +1806,4 @@ export function findExercise(id: string): Exercise | undefined {
 export function exercisesByPattern(pattern: MovementPattern): Exercise[] {
   return EXERCISES.filter((e) => e.pattern === pattern);
 }
+

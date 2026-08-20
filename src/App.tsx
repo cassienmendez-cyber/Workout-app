@@ -10,7 +10,8 @@ import { WorkoutLogger } from './ui/screens/WorkoutLogger';
 import { WorkoutDetail } from './ui/screens/WorkoutDetail';
 import { Celebration } from './ui/screens/Celebration';
 import { TabBar, type TabKey } from './ui/components/TabBar';
-import { prsFromWorkout, type PRResult } from './engine/records';
+import { evaluateAchievements, prsFromWorkout, type PRResult } from './engine/records';
+import { todayISO } from './lib/dates';
 
 /**
  * App shell.
@@ -59,17 +60,15 @@ function Shell(): JSX.Element {
           workout={activeWorkout}
           onExit={() => setView({ kind: 'tabs' })}
           onSubmitted={(submitted) => {
-            // Read PRs and achievements against the state as it now stands.
+            // The reducer has not committed yet, so recompute what it will
+            // award from the same deterministic functions it uses. Reading
+            // `state.achievements` here would always come back empty.
             const all = [...state.workouts.filter((w) => w.id !== submitted.id), submitted];
             const prs = prsFromWorkout(submitted, all);
-            const before = new Set(state.achievements.map((a) => a.id));
+            const earned = evaluateAchievements(all, state.achievements, todayISO());
             setView({ kind: 'tabs' });
             setTab('today');
-            setCelebration({
-              workout: submitted,
-              prs,
-              achievements: state.achievements.filter((a) => !before.has(a.id)),
-            });
+            setCelebration({ workout: submitted, prs, achievements: earned });
           }}
         />
         {celebration && (

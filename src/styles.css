@@ -666,10 +666,12 @@ textarea:focus-visible,
   text-transform: uppercase;
 }
 
+/* Rest days are the unstyled default: an outline, not a filled block, so they
+   read as "nothing scheduled" rather than as a muted status. */
 .cal-day {
   appearance: none;
-  border: 1.5px solid transparent;
-  background: var(--surface-2);
+  border: 1.5px solid var(--border);
+  background: transparent;
   border-radius: 11px;
   aspect-ratio: 1;
   display: flex;
@@ -688,37 +690,45 @@ textarea:focus-visible,
 
 .cal-day.empty {
   background: none;
+  border-color: transparent;
   cursor: default;
-}
-
-.cal-day.today {
-  border-color: var(--accent);
 }
 
 .cal-day.completed {
   background: var(--accent);
+  border-color: var(--accent);
   color: var(--accent-contrast);
 }
 
 .cal-day.scheduled {
   background: var(--accent-soft);
+  border-color: var(--accent-soft);
   color: var(--accent-strong);
 }
 
 .cal-day.in_progress {
   background: var(--info-soft);
+  border-color: var(--info-soft);
   color: var(--info);
 }
 
 .cal-day.rescheduled {
   background: var(--info-soft);
+  border-color: var(--info-soft);
   color: var(--info);
 }
 
-/* Skipped days stay quiet — never punitive (spec 55). */
+/* Skipped days stay quiet — visible, but never punitive (spec 55). */
 .cal-day.skipped {
   background: var(--surface-3);
+  border-color: var(--surface-3);
   color: var(--text-3);
+}
+
+/* Declared last so today's ring survives whatever status fills the cell. */
+.cal-day.today {
+  border-color: var(--accent);
+  border-width: 2px;
 }
 
 .cal-dot {
@@ -745,10 +755,11 @@ textarea:focus-visible,
 }
 
 .legend-swatch {
-  width: 13px;
-  height: 13px;
+  width: 15px;
+  height: 15px;
   border-radius: 4px;
-  border: 1.5px solid transparent;
+  border: 1.5px solid var(--border);
+  flex: none;
 }
 
 /* ----------------------------------------------------------------- timer --- */

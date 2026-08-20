@@ -228,19 +228,21 @@ function reducer(state: AppState, action: Action): AppState {
       return withWorkout(state, action.workoutId, (w) => {
         const target = w.exercises.find((we) => we.id === action.workoutExerciseId);
         if (!target) return w;
-        const exclude = w.exercises.map((we) => we.exerciseId);
 
-        const replacement = action.exerciseId
-          ? { exercise: undefined, reason: '' }
-          : substitute(target.exerciseId, user, profile, { exclude, trigger: 'manual' });
-
-        const newId = action.exerciseId ?? replacement?.exercise?.id;
-        if (!newId) return w;
-
-        const reason =
-          action.exerciseId !== undefined
-            ? 'You chose this alternative yourself.'
-            : (replacement?.reason ?? '');
+        // The user either picked a specific alternative, or asked the engine
+        // to choose the next best compatible one.
+        let newId: string | undefined = action.exerciseId;
+        let reason = 'You chose this alternative yourself.';
+        if (!newId) {
+          const exclude = w.exercises.map((we) => we.exerciseId);
+          const chosen = substitute(target.exerciseId, user, profile, {
+            exclude,
+            trigger: 'restriction',
+          });
+          if (!chosen) return w;
+          newId = chosen.exercise.id;
+          reason = chosen.reason;
+        }
 
         return {
           ...w,
