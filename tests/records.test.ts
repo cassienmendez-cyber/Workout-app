@@ -48,6 +48,27 @@ describe('personal records (spec 57)', () => {
     expect(countPRMilestones([w1])).toBe(0);
   });
 
+  it('does not celebrate a PR on the very first session of an exercise', () => {
+    const w1 = completeWorkout(scheduleFor()[0], { date: MONDAY, load: () => 100 });
+    expect(prsFromWorkout(w1, [w1])).toHaveLength(0);
+  });
+
+  it('always reports a previous best alongside a PR', () => {
+    const [first, second] = scheduleFor();
+    const w1 = completeWorkout(first, { date: MONDAY, load: () => 100 });
+    const w2 = completeWorkout(
+      { ...second, exercises: first.exercises.map((e) => ({ ...e, sets: e.sets.map((s) => ({ ...s })) })) },
+      { date: '2026-03-04', load: () => 120 },
+    );
+    const prs = prsFromWorkout(w2, [w1, w2]);
+    expect(prs.length).toBeGreaterThan(0);
+    for (const pr of prs) {
+      expect(pr.previousLoad).not.toBeNull();
+      expect(pr.previousReps).not.toBeNull();
+      expect(pr.improvement).toBeGreaterThan(0);
+    }
+  });
+
   it('excludes unloaded bodyweight work from strength PRs', () => {
     const w1 = completeWorkout(scheduleFor()[0], { date: MONDAY, load: () => 0 });
     expect(computePRs([w1]).size).toBe(0);

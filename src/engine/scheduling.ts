@@ -20,6 +20,11 @@ export function isImmutable(workout: Workout): boolean {
   return workout.status === 'completed' || workout.status === 'in_progress';
 }
 
+/** The date a workout actually sits on: where it moved to, else where planned. */
+export function effectiveDate(workout: Workout): string {
+  return workout.actualDate ?? workout.plannedDate;
+}
+
 /**
  * The next `count` dates on or after `from` that fall on an available weekday.
  * Falls back to consecutive days if the user has no availability set.
@@ -68,7 +73,7 @@ export function nextCycleIndex(user: UserProfile, workouts: Workout[]): number {
   const split = buildSplit(user.daysPerWeek);
   const done = workouts
     .filter((w) => w.status === 'completed')
-    .sort((a, b) => (a.actualDate ?? a.plannedDate).localeCompare(b.actualDate ?? b.plannedDate));
+    .sort((a, b) => effectiveDate(a).localeCompare(effectiveDate(b)));
   if (done.length === 0) return 0;
   const last = done[done.length - 1];
   return (last.slotIndex + 1) % split.length;
@@ -87,25 +92,27 @@ export function regenerateSchedule(options: ScheduleOptions): Workout[] {
   const from = options.from ?? todayISO();
   const count = options.count ?? Math.max(user.daysPerWeek * 2, 6);
 
-  // Anything historical, in progress, or already before the cutoff is kept.
-  const preserved = existing.filter(
-    (w) => isImmutable(w) || (w.plannedDate < from && w.status !== 'scheduled'),
-  );
-  // Scheduled workouts before the cutoff that were never completed become
-  // skipped rather than silently vanishing (spec 55: no punitive treatment,
-  // but the record stays honest).
+  // Only `scheduled` workouts are the engine's to rewrite. Anything the user
+  // has acted on — completed, started, moved, or skipped — is a record of what
+  // actually happened and survives untouched, whatever its date. A workout
+  // moved *earlier* than the cutoff still has a later planned date, so this
+  // must key on status rather than on dates (spec 39, 43, 68).
+  const preserved = existing.filter((w) => w.status !== 'scheduled');
+
+  // Scheduled workouts left behind the cutoff become skipped rather than
+  // silently vanishing (spec 55: the record stays honest, not punitive).
   const lapsed = existing
-    .filter((w) => w.status === 'scheduled' && w.plannedDate < from)
+    .filter((w) => w.status === 'scheduled' && effectiveDate(w) < from)
     .map((w) => ({ ...w, status: 'skipped' as const }));
 
   const history = [...preserved, ...lapsed];
   const split = buildSplit(user.daysPerWeek);
   let cycleIndex = nextCycleIndex(user, history);
 
-  // Respect an in-progress or already-scheduled session on `from` itself.
+  // Never double-book a date the user has already claimed.
   const dates = upcomingTrainingDates(user.availableDays, from, count);
   const occupied = new Set(
-    history.filter((w) => isImmutable(w)).map((w) => w.actualDate ?? w.plannedDate),
+    history.filter((w) => w.status !== 'skipped').map(effectiveDate),
   );
 
   const generated: Workout[] = [];
@@ -126,7 +133,7 @@ export function regenerateSchedule(options: ScheduleOptions): Workout[] {
   }
 
   return [...history, ...generated].sort((a, b) =>
-    (a.actualDate ?? a.plannedDate).localeCompare(b.actualDate ?? b.plannedDate),
+    effectiveDate(a).localeCompare(effectiveDate(b)),
   );
 }
 
@@ -162,21 +169,17 @@ export function rescheduleWorkout(
     status: 'rescheduled',
   };
 
-  // Keep history and the moved session; rebuild everything scheduled after it.
-  const kept = workouts.filter((w) => w.id !== workoutId && (isImmutable(w) || w.plannedDate < newDate));
+  // Everything except this workout carries through; regenerateSchedule keeps
+  // the records and rebuilds only what is still merely scheduled after the
+  // new date. `moved` is `rescheduled`, so it is preserved by status.
   const rebuilt = regenerateSchedule({
     user,
-    existing: [...kept, moved],
+    existing: [...workouts.filter((w) => w.id !== workoutId), moved],
     from: addDays(newDate, 1),
   });
 
-  // regenerateSchedule preserves `moved` because it is not `scheduled`.
-  const result = rebuilt.some((w) => w.id === moved.id) ? rebuilt : [...rebuilt, moved];
-
   return {
-    workouts: result.sort((a, b) =>
-      (a.actualDate ?? a.plannedDate).localeCompare(b.actualDate ?? b.plannedDate),
-    ),
+    workouts: rebuilt.sort((a, b) => effectiveDate(a).localeCompare(effectiveDate(b))),
     message: `Workout moved to ${newDate}. Your following sessions were rescheduled around it, and nothing you have already completed changed.`,
   };
 }
@@ -244,9 +247,7 @@ export function applyAvailabilityChange(
 /** Dates in the horizon that are deliberate rest days (spec 53, 54). */
 export function restDaysIn(workouts: Workout[], dates: string[]): string[] {
   const trainingDates = new Set(
-    workouts
-      .filter((w) => w.status !== 'skipped')
-      .map((w) => w.actualDate ?? w.plannedDate),
+    workouts.filter((w) => w.status !== 'skipped').map(effectiveDate),
   );
   return dates.filter((d) => !trainingDates.has(d));
 }

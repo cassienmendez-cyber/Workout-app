@@ -97,9 +97,7 @@ export function Celebration({
                         Previous
                       </p>
                       <span className="num" style={{ opacity: 0.65 }}>
-                        {pr.previousLoad !== null
-                          ? `${pr.previousLoad} ${unit} × ${pr.previousReps}`
-                          : '—'}
+                        {pr.previousLoad} {unit} × {pr.previousReps}
                       </span>
                     </div>
                     <span aria-hidden="true" style={{ fontSize: 20 }}>

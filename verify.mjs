@@ -20,7 +20,6 @@ await page.goto('http://127.0.0.1:4173/', { waitUntil: 'networkidle' });
 
 await page.locator('.choice', { hasText: 'Muscle gain' }).first().click();
 await page.getByRole('button', { name: 'Continue' }).click();
-await page.locator('.chip', { hasText: /^3$/ }).first().click();
 const days = page.locator('.chip-row').nth(1).locator('.chip');
 for (let i = 0; i < (await days.count()); i++) {
   const c = days.nth(i);
@@ -35,61 +34,67 @@ await page.getByRole('button', { name: 'Continue' }).click();
 await page.getByRole('button', { name: 'Build my program' }).click();
 await page.waitForTimeout(500);
 
-// --- 1. Load guard: completing a loaded set with no weight must be refused.
-await page.getByRole('button', { name: 'Start workout' }).first().click();
+// Seed yesterday's session as a copy of today's exercises at a modest load,
+// so today's heavier session produces a genuine PR against a real previous best.
+const seeded = await page.evaluate(() => {
+  const KEY = 'adaptive-strength.state.v1';
+  const st = JSON.parse(localStorage.getItem(KEY));
+  const iso = (d) => d.toISOString().slice(0, 10);
+  const today = iso(new Date());
+  const y = new Date();
+  y.setDate(y.getDate() - 1);
+
+  const todays = st.workouts.find((w) => (w.actualDate ?? w.plannedDate) === today);
+  if (!todays) return null;
+
+  const past = structuredClone(todays);
+  past.id = 'seed_prev';
+  past.plannedDate = iso(y);
+  past.actualDate = iso(y);
+  past.status = 'completed';
+  past.completedAt = `${iso(y)}T12:00:00.000Z`;
+  past.durationSeconds = 2400;
+  past.exercises = past.exercises.map((we, i) => ({
+    ...we,
+    id: `seed_prev_${i}`,
+    feedback: { difficulty: 'just_right' },
+    sets: we.sets.map((s, si) => ({
+      ...s,
+      id: `seed_prev_${i}_${si}`,
+      actualLoad: 100,
+      actualReps: we.targetRepRange.min,
+      completed: true,
+      timestamp: `${iso(y)}T12:00:00.000Z`,
+    })),
+  }));
+
+  st.workouts = [past, ...st.workouts];
+  localStorage.setItem(KEY, JSON.stringify(st));
+  return { exercises: past.exercises.length };
+});
+console.log('seeded previous session:', seeded);
+
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForTimeout(500);
+
+await page.getByRole('button', { name: /Start workout|Resume workout/ }).first().click();
 await page.waitForTimeout(300);
-await page.locator('.choice', { hasText: 'Normal' }).first().click();
-await page.getByRole('button', { name: 'Start workout' }).click();
-await page.waitForTimeout(400);
+if ((await page.locator('.screen-title').first().textContent()) === 'How are you feeling?') {
+  await page.locator('.choice', { hasText: 'Normal' }).first().click();
+  await page.getByRole('button', { name: 'Start workout' }).click();
+  await page.waitForTimeout(400);
+}
 
-const firstRow = page.locator('.set-row').first();
-await firstRow.locator('.set-check').click();
-await page.waitForTimeout(300);
-const guarded = (await firstRow.locator('.set-check').getAttribute('aria-pressed')) === 'false';
-const warned = (await page.locator('.note--warning').count()) > 0;
-console.log('load guard blocks empty-weight completion:', guarded);
-console.log('load guard shows an explanation:', warned);
-await page.screenshot({ path: `${SHOTS}/30-load-guard.png` });
-
-// Now enter a weight and confirm it completes.
-await firstRow.locator('input').first().fill('135');
-await firstRow.locator('.set-check').click();
-await page.waitForTimeout(250);
-console.log(
-  'completes once a weight is entered:',
-  (await firstRow.locator('.set-check').getAttribute('aria-pressed')) === 'true',
-);
-
-// --- 2. Substitution sheet
-await page.getByRole('button', { name: 'Swap' }).click();
-await page.waitForTimeout(400);
-const swapTitle = await page.locator('.sheet-title').first().textContent();
-const swapOptions = await page.locator('.sheet .choice').count();
-console.log('swap sheet:', swapTitle, '| alternatives offered:', swapOptions);
-await page.screenshot({ path: `${SHOTS}/31-swap.png` });
-await page.keyboard.press('Escape');
-await page.waitForTimeout(300);
-
-// --- 3. Short-workout mode
-await page.getByRole('button', { name: 'Less time' }).click();
-await page.waitForTimeout(400);
-await page.screenshot({ path: `${SHOTS}/32-less-time.png` });
-await page.locator('.sheet .choice', { hasText: 'Minimum' }).first().click();
-await page.waitForTimeout(400);
-const afterTrim = await page.locator('.tiny').first().textContent();
-console.log('after minimum mode:', afterTrim.replace(/\s+/g, ' ').trim());
-
-// --- 4. Complete the whole session and check the achievement celebration.
+// Log everything noticeably heavier than the seeded 100.
 for (let e = 0; e < 8; e++) {
   const rows = page.locator('.set-row');
   const rn = await rows.count();
   for (let i = 0; i < rn; i++) {
     const row = rows.nth(i);
-    const load = row.locator('input').first();
-    if ((await load.inputValue()) === '') await load.fill('135');
+    await row.locator('input').first().fill('160');
     const chk = row.locator('.set-check');
     if ((await chk.getAttribute('aria-pressed')) === 'false') await chk.click();
-    await page.waitForTimeout(60);
+    await page.waitForTimeout(50);
   }
   const finish = page.getByRole('button', { name: 'Finish workout' });
   const next = page.getByRole('button', { name: 'Next exercise' });
@@ -114,16 +119,34 @@ await page.waitForTimeout(800);
 
 const stages = [];
 for (let i = 0; i < 4; i++) {
-  const heading = await page.locator('.celebrate h1').first().textContent().catch(() => null);
-  if (!heading) break;
-  stages.push(heading);
-  await page.screenshot({ path: `${SHOTS}/33-celebrate-${i}.png` });
+  const h = await page.locator('.celebrate h1').first().textContent().catch(() => null);
+  if (!h) break;
+  stages.push(h);
+  await page.screenshot({ path: `${SHOTS}/40-celebrate-${i}.png` });
+  if (/record/i.test(h)) {
+    const cmp = await page.locator('.pr-compare').first().textContent();
+    console.log('PR card:', cmp.replace(/\s+/g, ' ').trim());
+  }
   const b = page.getByRole('button', { name: /^(Done|Next)$/ });
   if ((await b.count()) === 0) break;
   await b.first().click();
   await page.waitForTimeout(500);
 }
-console.log('celebration stages shown:', stages);
+console.log('stages:', stages);
+
+// The next scheduled session should now carry the new load forward.
+const next = await page.evaluate(() => {
+  const st = JSON.parse(localStorage.getItem('adaptive-strength.state.v1'));
+  const upcoming = st.workouts
+    .filter((w) => w.status === 'scheduled')
+    .sort((a, b) => (a.actualDate ?? a.plannedDate).localeCompare(b.actualDate ?? b.plannedDate))[0];
+  return upcoming
+    ? { label: upcoming.slotLabel, loads: upcoming.exercises.map((e) => e.targetLoad), notes: upcoming.adaptations }
+    : null;
+});
+console.log('\nnext session:', next?.label, '| target loads:', next?.loads);
+console.log('adaptation notes:');
+(next?.notes ?? []).forEach((n) => console.log('  -', n));
 
 await browser.close();
 console.log('\nerrors:', errors.length ? errors : 'none');

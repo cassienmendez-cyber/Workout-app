@@ -130,6 +130,40 @@ describe('rescheduling (spec 40, 41, 43)', () => {
     expect(message).toMatch(/nothing you have already completed changed/i);
   });
 
+  it('keeps a workout moved EARLIER than its planned date', () => {
+    // A workout planned for Friday, pulled forward to Tuesday. Its planned
+    // date is still later than the regeneration cutoff, which previously made
+    // it fall through every preservation check and vanish.
+    const initial = regenerateSchedule({ user, existing: [], from: MONDAY, count: 4 });
+    const friday = initial.find((w) => weekdayOf(w.plannedDate) === 5);
+    expect(friday).toBeDefined();
+
+    const { workouts } = rescheduleWorkout(user, initial, friday!.id, '2026-03-03');
+    const moved = workouts.find((w) => w.id === friday!.id);
+
+    expect(moved, 'the moved workout was dropped from the schedule').toBeDefined();
+    expect(moved?.status).toBe('rescheduled');
+    expect(moved?.actualDate).toBe('2026-03-03');
+    expect(moved?.plannedDate).toBe(friday!.plannedDate);
+  });
+
+  it('does not double-book a date a moved workout now occupies', () => {
+    const initial = regenerateSchedule({ user, existing: [], from: MONDAY, count: 4 });
+    const target = initial[2];
+    const { workouts } = rescheduleWorkout(user, initial, target.id, '2026-03-10');
+
+    const live = workouts.filter((w) => w.status === 'scheduled' || w.status === 'rescheduled');
+    const dates = live.map((w) => w.actualDate ?? w.plannedDate);
+    expect(new Set(dates).size).toBe(dates.length);
+  });
+
+  it('preserves a skipped workout through later regenerations', () => {
+    const initial = regenerateSchedule({ user, existing: [], from: MONDAY, count: 4 });
+    const skipped = skipWorkout(user, initial, initial[0].id).workouts;
+    const rebuilt = regenerateSchedule({ user, existing: skipped, from: '2026-03-11' });
+    expect(rebuilt.find((w) => w.id === initial[0].id)?.status).toBe('skipped');
+  });
+
   it('refuses to move a completed workout', () => {
     const initial = regenerateSchedule({ user, existing: [], from: MONDAY, count: 3 });
     const done = completeWorkout(initial[0], { date: MONDAY });

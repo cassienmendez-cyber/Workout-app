@@ -56,8 +56,9 @@ export interface PRResult {
   exerciseName: string;
   load: number;
   reps: number;
-  previousLoad: number | null;
-  previousReps: number | null;
+  /** Always present: a PR is only reported against an established best. */
+  previousLoad: number;
+  previousReps: number;
   improvement: number;
 }
 
@@ -88,7 +89,10 @@ export function prsFromWorkout(workout: Workout, allWorkouts: Workout[]): PRResu
     if (!bestSet) continue;
 
     const previous = priorBest.get(we.exerciseId);
-    if (previous && bestSet.e1rm <= previous.estimatedOneRepMax) continue;
+    // The first time an exercise is logged establishes a baseline. Calling it
+    // a record would cheapen the celebration and contradict countPRMilestones.
+    if (!previous) continue;
+    if (bestSet.e1rm <= previous.estimatedOneRepMax) continue;
 
     const exercise = findExercise(we.exerciseId);
     results.push({
@@ -96,11 +100,9 @@ export function prsFromWorkout(workout: Workout, allWorkouts: Workout[]): PRResu
       exerciseName: exercise?.name ?? we.exerciseId,
       load: bestSet.load,
       reps: bestSet.reps,
-      previousLoad: previous?.load ?? null,
-      previousReps: previous?.reps ?? null,
-      improvement: previous
-        ? Math.round((bestSet.e1rm - previous.estimatedOneRepMax) * 10) / 10
-        : bestSet.e1rm,
+      previousLoad: previous.load,
+      previousReps: previous.reps,
+      improvement: Math.round((bestSet.e1rm - previous.estimatedOneRepMax) * 10) / 10,
     });
   }
   return results;
