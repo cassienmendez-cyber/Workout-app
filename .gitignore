@@ -4,3 +4,4 @@ dist
 *.local
 coverage
 tsconfig.tsbuildinfo
+artifact
